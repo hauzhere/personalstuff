@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7f6f2">
+  <meta name="description" content="Listen to your PDF slide decks. Skip repeated slide builds and hear only what's new.">
+  <title>Slidecast — your slides, read once</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css?v=1">
+  <script type="module" src="./app.js?v=1"></script>
+</head>
+<body>
+  <header class="site-header"><a class="brand" href="./">slidecast<span>.</span></a><span class="header-caption">YOUR SLIDES, READ ONCE</span><button id="help-button" class="quiet-button">How it works</button></header>
+  <main class="app-layout">
+    <aside class="library" aria-label="PDF queue">
+      <div class="library-heading"><h1>Your reading queue</h1><span id="file-count">0 PDFs</span></div>
+      <input id="file-input" type="file" accept=".pdf,application/pdf" multiple hidden>
+      <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Add PDF slide decks">
+        <svg class="upload-icon" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 22V5m-6 6 6-6 6 6M7 21v6h18v-6"/></svg>
+        <strong>Drop your slides here</strong><span>Multiple PDFs welcome</span><button id="add-files-button" class="outline-button" type="button">Choose files</button>
+      </div>
+      <div id="file-list" class="file-list" aria-label="Uploaded PDFs" aria-busy="false"></div>
+      <button id="clear-files" class="quiet-button clear-files" disabled>Clear queue</button>
+      <div class="library-note"><span class="privacy-dot" aria-hidden="true"></span><p>Read locally. Your PDFs stay on your device and are kept only in this browser tab.</p></div>
+    </aside>
+
+    <section class="reading-space" aria-label="Slide reader">
+      <div id="welcome" class="welcome">
+        <span class="eyebrow">A LITTLE LESS REPEAT. A LOT MORE FOCUS.</span>
+        <h2>Let your slides<br>do the talking.</h2>
+        <p>Drop in a lecture deck, choose a voice, and listen.<br>When a slide adds one line, you’ll hear that line —<br class="desktop-break"> not the entire slide again.</p>
+        <div class="welcome-steps"><span><b>01</b>Add your PDFs</span><span><b>02</b>Skip the repeats</span><span><b>03</b>Press listen</span></div>
+        <p class="welcome-footnote">Built for the slide-after-slide kind of class.</p>
+      </div>
+
+      <div id="workspace" class="workspace" hidden>
+        <div class="deck-header"><div><p class="eyebrow">NOW READING</p><h2 id="deck-title"></h2><p id="deck-summary" class="deck-summary"></p></div><label class="toggle-label"><input id="dedupe-toggle" type="checkbox" checked><span>Skip repeated slide text</span></label></div>
+        <div class="slide-stage"><canvas id="slide-canvas" hidden aria-label="Current PDF slide"></canvas><p id="canvas-status" role="status">Preparing your slides…</p></div>
+        <div class="slide-navigation"><button id="previous-slide" class="arrow-button" aria-label="Previous slide">←</button><span id="page-label">Slide 1</span><button id="next-slide" class="arrow-button" aria-label="Next slide">→</button></div>
+        <div class="transcript-header"><h3 id="narration-heading">What you’ll hear</h3><span id="skipped-note"></span></div>
+        <p id="narration-text" class="narration-text"></p>
+        <details class="original-details"><summary>Full extracted slide text</summary><p id="original-text"></p></details>
+        <details class="slides-details"><summary>Browse all slides</summary><div id="slide-list" class="slide-list"></div></details>
+      </div>
+      <p id="notice" class="notice" role="alert" hidden></p>
+      <p id="app-status" class="app-status" role="status" aria-live="polite">Add a PDF to begin.</p>
+    </section>
+  </main>
+
+  <footer class="player" aria-label="Narration controls">
+    <div class="playback-controls"><button id="play-button" class="play-button" disabled><span id="play-icon" aria-hidden="true">▶︎</span><span id="play-label">Listen</span></button><button id="stop-button" class="quiet-button" disabled>Stop</button><span id="playback-status" class="playback-status">Ready when you are</span></div>
+    <div class="voice-controls"><label for="voice-select">Voice<select id="voice-select"><option value="">Default device voice</option></select></label><label for="speed-select">Speed<select id="speed-select"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.15">1.15×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option></select></label><label class="auto-next"><input id="auto-next" type="checkbox" checked><span>Continue to next PDF</span></label></div>
+  </footer>
+
+  <dialog id="help-dialog" aria-labelledby="help-title"><div class="dialog-heading"><h2 id="help-title">Less repetition. More listening.</h2><button id="close-help" class="quiet-button">Close</button></div><p>Drop multiple PDF slide decks into the queue. Slidecast extracts selectable text on your device, then reads it with your chosen device voice.</p><p><strong>Progressive slides:</strong> nearby slides that keep the same material are compared, so only the added lines are narrated. Turn off “Skip repeated slide text” to read every slide in full. Always check the extracted text when a slide contains equations, complex layouts, or diagrams.</p><p><strong>Voice quality:</strong> choose an enhanced or natural voice if your device offers one. Voices marked “online” may send narration text to their voice provider and need internet. Keep this page open while listening; phones can pause speech when locked or backgrounded.</p><p><strong>Images and scans:</strong> slides without selectable text are shown but cannot be read automatically. This version does not perform OCR or describe diagrams.</p><p>Your PDF files are not uploaded or saved to a server. Refreshing clears the queue. Voice and speed preferences stay on this device.</p></dialog>
+</body>
+</html>

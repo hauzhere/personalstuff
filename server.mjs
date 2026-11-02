@@ -4,8 +4,9 @@ import { resolve, extname } from 'node:path';
 
 const root = resolve(process.env.SERVE_DIST === '1' ? 'dist' : '.');
 const port = Number(process.env.PORT || 3000);
-const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.wasm': 'application/wasm', '.ttf': 'font/ttf', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml' };
 const publicFiles = new Set(['index.html', 'styles.css', 'app.js', 'task-store.js', 'completion-sound.js', 'sw.js', 'manifest.webmanifest']);
+const readerFiles = new Set(['index.html', 'styles.css', 'app.js', 'pdf-loader.js', 'dedupe.js', 'speech.js', 'icon.svg']);
 
 http.createServer(async (req, res) => {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -14,8 +15,10 @@ http.createServer(async (req, res) => {
   }
   try {
     const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-    const relative = pathname === '/' ? 'index.html' : pathname.slice(1);
-    if (!publicFiles.has(relative) && !/^icons\/[a-zA-Z0-9_-]+\.(png|svg)$/.test(relative)) {
+    const relative = pathname === '/' ? 'index.html' : ['/reader', '/reader/'].includes(pathname) ? 'reader/index.html' : pathname.slice(1);
+    const readerFile = relative.startsWith('reader/') && readerFiles.has(relative.slice(7));
+    const vendorFile = /^reader\/vendor\/[A-Za-z0-9_.\/-]+$/.test(relative) && !relative.split('/').includes('..');
+    if (!publicFiles.has(relative) && !readerFile && !vendorFile && !/^icons\/[a-zA-Z0-9_-]+\.(png|svg)$/.test(relative)) {
       res.writeHead(404).end('Not found');
       return;
     }
@@ -25,7 +28,7 @@ http.createServer(async (req, res) => {
       'Cache-Control': 'no-cache',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
-      'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; font-src 'self' blob: data:; worker-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
     });
     res.end(req.method === 'HEAD' ? undefined : data);
   } catch {

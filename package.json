@@ -5,13 +5,19 @@
   "type": "module",
   "description": "A quiet, offline-ready task list for one day at a time.",
   "scripts": {
+    "predev": "node scripts/prepare-reader.mjs",
     "dev": "node server.mjs",
     "start": "node server.mjs",
     "build": "node scripts/build.mjs",
     "test": "node --test --test-isolation=none tests/task-store.test.js",
-    "test:browser": "node --test --test-isolation=none tests/browser.test.js"
+    "test:browser": "node --test --test-isolation=none tests/browser.test.js",
+    "test:reader": "node --test --test-isolation=none reader/tests/dedupe.test.js reader/tests/speech.test.js",
+    "test:reader:browser": "node --test --test-isolation=none reader/tests/browser.test.js"
   },
   "devDependencies": {
     "playwright": "1.56.1"
+  },
+  "dependencies": {
+    "pdfjs-dist": "5.4.394"
   }
 }

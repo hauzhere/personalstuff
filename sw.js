@@ -1,6 +1,7 @@
 /* Bump the shell version when shipping changes to a precached file. */
 const CACHE_PREFIX = 'gone-shell-';
-const CACHE_NAME = `${CACHE_PREFIX}v7`;
+const CACHE_NAME = `${CACHE_PREFIX}v8`;
+const READER_PATH = new URL('./reader/', self.location.href).pathname;
 const SHELL_FILES = [
   './',
   './index.html',
@@ -8,10 +9,10 @@ const SHELL_FILES = [
   './app.js',
   './task-store.js',
   './completion-sound.js',
-  './styles.css?v=7',
-  './app.js?v=7',
-  './task-store.js?v=7',
-  './completion-sound.js?v=7',
+  './styles.css?v=8',
+  './app.js?v=8',
+  './task-store.js?v=8',
+  './completion-sound.js?v=8',
   './manifest.webmanifest',
   './icons/icon.svg',
   './icons/icon-192.png',
@@ -39,6 +40,18 @@ self.addEventListener('activate', (event) => {
       .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
       .map((key) => caches.delete(key)));
     await self.clients.claim();
+    // An older Gone worker may have served its shell at the new reader URL.
+    // Keep an already running Slidecast tab; refresh only a stale app shell.
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    await Promise.all(windows.filter(client => new URL(client.url).pathname.startsWith(READER_PATH)).map(async client => {
+      const isReader = await new Promise(resolve => {
+        const channel = new MessageChannel();
+        const timer = setTimeout(() => { channel.port1.close(); resolve(false); }, 500);
+        channel.port1.onmessage = event => { clearTimeout(timer); channel.port1.close(); resolve(event.data?.app === 'slidecast'); };
+        client.postMessage({ type: 'identify-slidecast' }, [channel.port2]);
+      });
+      if (!isReader) await client.navigate(client.url).catch(() => {});
+    }));
   })());
 });
 
@@ -46,6 +59,7 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
+  if (url.pathname === READER_PATH.slice(0, -1) || url.pathname.startsWith(READER_PATH)) return;
 
   if (request.mode === 'navigate') {
     event.respondWith((async () => {

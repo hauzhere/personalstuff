@@ -3,3 +3,4 @@ dist/
 artifacts/
 *.log
 .DS_Store
+reader/vendor/

@@ -56,3 +56,7 @@ The unit suite checks task deadlines and weekly reports. The browser suite exerc
 The build copies only the production app into `dist/`. It does not bundle development dependencies. To serve that build locally, run `SERVE_DIST=1 npm start`.
 
 When changing an offline-cached app file, bump the cache version in `sw.js` and the matching asset query versions in `index.html`, `app.js`, and the worker’s precache list before building and deploying. Release-tagged imports keep an older installed worker from mixing incompatible JavaScript files. Keep the same production URL to preserve the device’s existing task store.
+
+## Slidecast: separate PDF reader
+
+The same static host now serves **Slidecast** at `/reader/`, with a separate interface for multi-PDF uploads, incremental slide narration, voice selection, and reading speed. PDF files are processed locally. See [reader/README.md](reader/README.md) for behavior, privacy, limitations, and tests. `npm run build` prepares both sites together.
