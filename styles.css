@@ -31,12 +31,12 @@ main { margin-top: 52px; }
 .task-list { margin: 0; }
 .task-row { position: relative; overflow: hidden; touch-action: pan-y; }
 .task-swipe-content { position: relative; background: var(--background); transition: transform .16s ease; }
-.task-row[data-action="delete"] .task-swipe-content { transform: translateX(66px); }
-.task-row[data-action="edit"] .task-swipe-content { transform: translateX(-66px); }
+.task-row[data-action="delete"] .task-swipe-content { transform: translateX(-66px); }
+.task-row[data-action="edit"] .task-swipe-content { transform: translateX(66px); }
 .task-actions { position: absolute; inset: 4px 0; display: flex; justify-content: space-between; align-items: stretch; }
 .task-actions button { width: 58px; min-height: 48px; border: 0; border-radius: 6px; color: white; display: grid; place-items: center; }
-.task-delete { background: #bf443e; margin-right: auto; }
-.task-edit { background: #3a75ad; margin-left: auto; }
+.task-delete { background: #bf443e; margin-left: auto; }
+.task-edit { background: #3a75ad; margin-right: auto; }
 .task-actions svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .task-row[data-action="both"] { display: flex; flex-direction: column; }
 .task-row[data-action="both"] .task-actions { position: static; order: 2; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
@@ -112,3 +112,8 @@ dialog li { margin-bottom: 5px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+.task-toggle { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.task-row.dragging { opacity: .95; cursor: grabbing; box-shadow: 0 8px 24px #174c351c; background: var(--background); }
+.task-row.dragging .task-swipe-content { transition: none; }
+.task-placeholder { background: #174c3509; }
