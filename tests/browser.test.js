@@ -98,6 +98,56 @@ test('24-hour expiration removes tasks and records their original expiry date', 
   assert.equal(saved.tasks[0].expiredAt, fixedNow + 1000);
 });
 
+test('right-aligned hour countdowns change urgency at exact boundaries without a typing hint', async t => {
+  const hour = 60 * 60 * 1000;
+  const cases = [
+    ['fresh', 19 * hour, '19h', 'is-faint'],
+    ['eighteen', 18 * hour, '18h', 'is-normal'],
+    ['above-three', 3 * hour + 1, '4h', 'is-normal'],
+    ['three', 3 * hour, '3h', 'is-soon'],
+    ['above-one', hour + 1, '2h', 'is-soon'],
+    ['one', hour, '1h', 'is-urgent'],
+  ];
+  const longText = 'A longer task that needs to wrap naturally beside its remaining time, keeping the circle, the task text, and the countdown within the width of a small phone screen.';
+  const { page } = await openApp(t, { seed: [
+    ...cases.map(([id, remaining]) => task(id, id === 'fresh' ? longText : `Task ${id}`, fixedNow - DAY_MS + remaining)),
+  ] });
+  assert.equal(await page.locator('#input-hint').count(), 0);
+  assert.equal(await page.getByText('Type a task. Press enter.', { exact: true }).count(), 0);
+  assert.equal(await page.locator('[aria-describedby]').evaluateAll(elements => elements.every(element =>
+    element.getAttribute('aria-describedby').split(/\s+/).every(id => document.getElementById(id)))), true, 'All accessible descriptions resolve to existing elements');
+
+  const colors = new Map();
+  for (const [id, , text, urgency] of cases) {
+    const row = page.locator(`.task-toggle[data-task-id="${id}"]`);
+    const timer = row.locator('.task-remaining');
+    assert.equal(await timer.textContent(), text, `${id} displays rounded-up remaining hours`);
+    assert.equal(await timer.evaluate((element, expected) => element.classList.contains(expected), urgency), true, `${id} has the expected urgency`);
+    colors.set(urgency, await timer.evaluate(element => getComputedStyle(element).color));
+    const bounds = await row.evaluate(element => {
+      const label = element.querySelector('.task-text').getBoundingClientRect();
+      const countdown = element.querySelector('.task-remaining').getBoundingClientRect();
+      return { labelRight: label.right, timeLeft: countdown.left, timeRight: countdown.right, rowRight: element.getBoundingClientRect().right };
+    });
+    assert.ok(bounds.timeLeft >= bounds.labelRight, 'Countdown appears to the right of the task text');
+    assert.ok(Math.abs(bounds.timeRight - bounds.rowRight) <= 2, 'Countdown aligns with the right edge of the task line');
+  }
+  assert.equal(new Set(colors.values()).size, 4, 'Faint, normal, soon, and urgent use distinguishable text colors');
+  assert.equal(await page.locator('.task-toggle[data-task-id="fresh"] .task-text').evaluate(element =>
+    element.getBoundingClientRect().height > parseFloat(getComputedStyle(element).lineHeight)), true, 'Long task text wraps beside the countdown');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Countdowns do not create horizontal overflow');
+
+  await page.evaluate(now => { window.__testNow = now; document.dispatchEvent(new Event('visibilitychange')); }, fixedNow + 1);
+  assert.equal(await page.locator('.task-toggle[data-task-id="above-three"] .task-remaining').textContent(), '3h');
+  assert.equal(await page.locator('.task-toggle[data-task-id="above-three"] .task-remaining.is-soon').count(), 1);
+  assert.equal(await page.locator('.task-toggle[data-task-id="above-one"] .task-remaining').textContent(), '1h');
+  assert.equal(await page.locator('.task-toggle[data-task-id="above-one"] .task-remaining.is-urgent').count(), 1);
+  await page.evaluate(now => { window.__testNow = now; document.dispatchEvent(new Event('visibilitychange')); }, fixedNow + hour);
+  assert.equal(await page.locator('.task-toggle[data-task-id="fresh"] .task-remaining').textContent(), '18h');
+  assert.equal(await page.locator('.task-toggle[data-task-id="fresh"] .task-remaining.is-normal').count(), 1);
+  assert.equal(await page.locator('.task-toggle[data-task-id="one"]').count(), 0, 'Deadline still removes the task instead of showing zero hours');
+});
+
 test('weekly history retains old completions while the task list gets a fresh start', async t => {
   const { page } = await openApp(t, { seed: [
     task('old-completed', 'A win last week', fixedNow - 7 * DAY_MS, fixedNow - 7 * DAY_MS + 1000),

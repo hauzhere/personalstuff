@@ -51,12 +51,11 @@ function refresh() {
 }
 
 function formatRemaining(task, now) {
-  const minutes = Math.max(1, Math.ceil((task.createdAt + DAY_MS - now) / 60_000));
-  if (minutes >= 60) return `${Math.ceil(minutes / 60)}h left`;
-  return `${minutes}m left`;
+  const hours = Math.max(1, Math.ceil((task.createdAt + DAY_MS - now) / 3_600_000));
+  return `${hours}h`;
 }
 
-function taskRow(task) {
+function taskRow(task, now) {
   const done = task.completedAt !== null;
   const row = document.createElement('div');
   row.className = `task-row${done ? ' done' : ''}`;
@@ -72,8 +71,16 @@ function taskRow(task) {
   const label = document.createElement('span');
   label.className = 'task-text';
   label.textContent = task.text;
-  button.title = done ? 'Completed' : formatRemaining(task, Date.now());
-  button.append(check, label);
+  const hoursLeft = (task.createdAt + DAY_MS - now) / 3_600_000;
+  const urgency = hoursLeft > 18 ? 'faint' : hoursLeft > 3 ? 'normal' : hoursLeft > 1 ? 'soon' : 'urgent';
+  const remaining = document.createElement('span');
+  remaining.id = `remaining-${task.id}`;
+  remaining.className = `task-remaining is-${urgency}`;
+  remaining.textContent = formatRemaining(task, now);
+  remaining.setAttribute('aria-label', `${Math.max(1, Math.ceil(hoursLeft))} ${Math.ceil(hoursLeft) === 1 ? 'hour' : 'hours'} left`);
+  button.setAttribute('aria-describedby', remaining.id);
+  button.title = done ? 'Completed' : remaining.getAttribute('aria-label');
+  button.append(check, label, remaining);
   button.addEventListener('click', event => {
     if (canPersist) tasks = readSaved();
     tasks = toggleTask(tasks, task.id);
@@ -125,7 +132,7 @@ function render() {
   const active = tasks.filter(task => task.completedAt === null && task.expiredAt === null).sort((a, b) => a.createdAt - b.createdAt);
   const completed = tasks.filter(task => task.completedAt !== null && now < task.createdAt + DAY_MS).sort((a, b) => b.completedAt - a.completedAt);
   const visible = [...active, ...completed].sort((a, b) => a.createdAt - b.createdAt);
-  $('task-list').replaceChildren(...visible.map(task => taskRow(task)));
+  $('task-list').replaceChildren(...visible.map(task => taskRow(task, now)));
   $('task-count').textContent = active.length;
   $('today-date').textContent = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).format(now);
   renderReport(now);
