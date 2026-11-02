@@ -1,5 +1,5 @@
-import { DAY_MS, createTask, normalizeTasks, reconcileTasks, toggleTask, editTask, deleteTask, moveTask, weeklyStats, weekBounds } from './task-store.js?v=7';
-import { playCompletionSound } from './completion-sound.js?v=7';
+import { DAY_MS, createTask, normalizeTasks, reconcileTasks, toggleTask, editTask, deleteTask, moveTask, weeklyStats, weekBounds } from './task-store.js?v=8';
+import { playCompletionSound } from './completion-sound.js?v=8';
 
 const $ = id => document.getElementById(id);
 const STORAGE_KEY = 'gone.tasks.v1';
