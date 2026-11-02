@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { chromium, devices } from 'playwright';
 import { DAY_MS } from '../task-store.js';
 
@@ -25,7 +26,7 @@ before(async () => {
 
 after(async () => { await browser?.close(); server?.kill(); });
 
-async function openApp(t, { seed, time = fixedNow } = {}) {
+async function openApp(t, { seed, time = fixedNow, url = base } = {}) {
   const context = await browser.newContext({ ...devices['iPhone 13'], defaultBrowserType: 'chromium', timezoneId: 'America/Indianapolis' });
   t.after(() => context.close());
   await context.addInitScript(({ seed, time }) => {
@@ -39,7 +40,7 @@ async function openApp(t, { seed, time = fixedNow } = {}) {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto(base);
+  await page.goto(url);
   await page.waitForFunction(() => document.getElementById('today-date').textContent.length > 0);
   t.after(() => assert.deepEqual(errors, [], 'No browser JavaScript errors'));
   return { page, context };
@@ -55,11 +56,110 @@ async function addTask(page, text) {
 
 const task = (id, text, createdAt, completedAt = null) => ({ id, text, createdAt, completedAt, expiredAt: null });
 
+async function swipeTask(page, id, dx, dy = 0) {
+  const target = page.locator(`.task-toggle[data-task-id="${id}"]`);
+  await target.scrollIntoViewIfNeeded();
+  const bounds = await target.boundingBox();
+  assert.ok(bounds, 'Task is available for a touch gesture');
+  const x = bounds.x + bounds.width / 2;
+  const y = bounds.y + bounds.height / 2;
+  const session = await page.context().newCDPSession(page);
+  try {
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
+    for (let step = 1; step <= 4; step++) {
+      await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + dx * step / 4, y: y + dy * step / 4, id: 1 }] });
+    }
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  } finally {
+    await session.detach();
+  }
+}
+
+test('touching a task crosses it immediately while typing and survives a refresh during touch-down', async t => {
+  const { page } = await openApp(t);
+  await addTask(page, 'Finish this on my phone');
+  await page.evaluate(() => {
+    const button = document.querySelector('.task-toggle');
+    window.__originalTaskButton = button;
+    button.addEventListener('pointerdown', () => document.dispatchEvent(new Event('visibilitychange')), { once: true });
+  });
+  await page.locator('.task-check').tap();
+  assert.equal(await page.locator('.task-row.done').count(), 1, 'The first circle tap immediately crosses off the task');
+  assert.equal(await page.evaluate(() => window.__originalTaskButton === document.querySelector('.task-toggle')), true, 'Refresh retains the touch target');
+  const completed = await page.evaluate(() => JSON.parse(localStorage.getItem('gone.tasks.v1')).tasks[0]);
+  assert.equal(completed.completedAt, fixedNow, 'Completion is saved without another task or refresh');
+  await page.getByRole('textbox', { name: 'New task' }).focus();
+  await page.locator('.task-text').tap();
+  assert.equal(await page.locator('.task-row.done').count(), 0, 'Tapping task text also reverses completion while the input is focused');
+  await page.reload();
+  assert.equal(await page.locator('.task-row.done').count(), 0, 'The latest touched state survives reload');
+});
+
+test('a left swipe reveals editing without completing the task or extending its deadline', async t => {
+  const createdAt = fixedNow - 2 * 60 * 60 * 1000;
+  const { page } = await openApp(t, { seed: [task('editable', 'Make a small change', createdAt)] });
+  await swipeTask(page, 'editable', -90);
+  assert.equal(await page.locator('.task-row.done').count(), 0, 'Swiping does not complete the task');
+  const edit = page.getByRole('button', { name: 'Edit task: Make a small change', exact: true });
+  assert.equal(await edit.isVisible(), true);
+  await edit.tap();
+  assert.equal(await page.locator('#edit-dialog').isVisible(), true);
+  const input = page.getByRole('textbox', { name: 'Edit task', exact: true });
+  assert.equal(await input.inputValue(), 'Make a small change');
+  await input.fill('  Call home  ');
+  await page.locator('#edit-dialog').getByRole('button', { name: 'Save', exact: true }).tap();
+  assert.equal(await page.locator('#edit-dialog').isVisible(), false);
+  assert.equal(await page.locator('.task-text').textContent(), 'Call home');
+  assert.equal(await page.locator('.task-remaining').textContent(), '22h');
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('gone.tasks.v1')).tasks[0]);
+  assert.equal(saved.createdAt, createdAt, 'Editing preserves the original expiration deadline');
+  assert.equal(saved.completedAt, null);
+  await swipeTask(page, 'editable', -90);
+  await page.getByRole('button', { name: 'Edit task: Call home', exact: true }).tap();
+  await input.fill('Discard this draft');
+  await page.locator('#edit-dialog').getByRole('button', { name: 'Cancel', exact: true }).tap();
+  assert.equal(await page.locator('.task-text').textContent(), 'Call home', 'Cancel leaves the stored task unchanged');
+});
+
+test('a right swipe reveals deletion while preserving completed versus removed weekly totals', async t => {
+  const hour = 60 * 60 * 1000;
+  const { page } = await openApp(t, { seed: [
+    task('pending-delete', 'Remove this task', fixedNow - 2 * hour),
+    task('done-delete', 'Finished first', fixedNow - 2 * hour, fixedNow - hour),
+  ] });
+  await swipeTask(page, 'pending-delete', 90);
+  assert.equal(await page.locator('.task-row.done').count(), 1, 'Swiping alone leaves completion states unchanged');
+  await page.getByRole('button', { name: 'Delete task: Remove this task', exact: true }).tap();
+  assert.equal(await page.locator('.task-row').count(), 1);
+  const removed = await page.evaluate(() => JSON.parse(localStorage.getItem('gone.tasks.v1')).tasks.find(item => item.id === 'pending-delete'));
+  assert.equal(removed.deletedAt, fixedNow, 'Deletion persists a history record');
+  await page.getByRole('button', { name: 'Weekly report' }).tap();
+  assert.equal(await page.locator('#stat-removed').textContent(), '1');
+  assert.equal(await page.locator('#stat-completed').textContent(), '1');
+  await page.getByRole('button', { name: 'Today', exact: false }).tap();
+  await swipeTask(page, 'done-delete', 90);
+  await page.getByRole('button', { name: 'Delete task: Finished first', exact: true }).tap();
+  assert.equal(await page.locator('.task-row').count(), 0);
+  await page.getByRole('button', { name: 'Weekly report' }).tap();
+  assert.equal(await page.locator('#stat-removed').textContent(), '1', 'Removing a completed line does not count it again as removed');
+  assert.equal(await page.locator('#stat-completed').textContent(), '1', 'Deleting a completed line retains its completed history');
+  await page.reload();
+  assert.equal(await page.locator('.task-row').count(), 0, 'Deleted lines stay removed after reload');
+});
+
+test('vertical touch gestures do not expose task actions or mark a task complete', async t => {
+  const { page } = await openApp(t, { seed: [task('scroll-only', 'Leave this task alone', fixedNow)] });
+  await swipeTask(page, 'scroll-only', 4, 90);
+  assert.equal(await page.locator('.task-row.done').count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Edit task: Leave this task alone', exact: true }).isVisible(), false);
+  assert.equal(await page.getByRole('button', { name: 'Delete task: Leave this task alone', exact: true }).isVisible(), false);
+});
+
 test('iPhone layout adds, crosses off, undoes and persists tasks across reload', async t => {
   const { page } = await openApp(t);
   assert.equal(await page.getByRole('textbox', { name: 'New task' }).isVisible(), true);
   assert.equal(await page.locator('.task-row').count(), 0);
-  assert.equal(await page.locator('.task-card, .intro, #tasks-view svg').count(), 0, 'Tasks use no card or decorative graphics');
+  assert.equal(await page.locator('.task-card, .intro, #tasks-view svg:visible').count(), 0, 'Tasks use no card or decorative graphics');
   assert.equal(await page.locator('#task-form button').count(), 0, 'Typing does not require an add button');
   const entryStyles = await page.locator('#task-form, #task-input').evaluateAll(elements => elements.map(element => {
     const style = getComputedStyle(element);
@@ -214,6 +314,7 @@ test('corrupt saved data is preserved with an explicit unsaved-session warning',
 
 test('completion chime works offline, stays silent on undo, and remembers the sound preference', async t => {
   const { page, context } = await openApp(t);
+  await page.waitForFunction(() => navigator.serviceWorker.controller);
   await context.addInitScript(() => {
     window.__toneStarts = 0;
     const start = OscillatorNode.prototype.start;
@@ -227,7 +328,7 @@ test('completion chime works offline, stays silent on undo, and remembers the so
   await context.setOffline(true);
   await addTask(page, 'A quiet little win');
   assert.equal(await page.evaluate(() => window.__toneStarts), 0, 'Adding a task is silent');
-  await page.getByRole('button', { name: 'Complete task: A quiet little win', exact: true }).click();
+  await page.getByRole('button', { name: 'Complete task: A quiet little win', exact: true }).tap();
   await page.waitForFunction(() => window.__toneStarts > 0);
   const firstChime = await page.evaluate(() => window.__toneStarts);
   await page.getByRole('button', { name: 'Mark unfinished: A quiet little win', exact: true }).click();
@@ -235,7 +336,7 @@ test('completion chime works offline, stays silent on undo, and remembers the so
   await page.getByRole('button', { name: 'About Gone and install on iPhone' }).click();
   await page.getByRole('checkbox', { name: 'Completion sound' }).uncheck();
   await page.getByRole('button', { name: 'Close about dialog' }).click();
-  await page.getByRole('button', { name: 'Complete task: A quiet little win', exact: true }).click();
+  await page.getByRole('button', { name: 'Complete task: A quiet little win', exact: true }).tap();
   assert.equal(await page.evaluate(() => window.__toneStarts), firstChime, 'Disabled sound never schedules tones');
   await page.reload();
   assert.equal(await page.evaluate(() => window.__toneStarts), 0, 'Reloading completed tasks is silent');
@@ -244,7 +345,7 @@ test('completion chime works offline, stays silent on undo, and remembers the so
   await page.getByRole('checkbox', { name: 'Completion sound' }).check();
   await page.getByRole('button', { name: 'Close about dialog' }).click();
   await page.getByRole('button', { name: 'Mark unfinished: A quiet little win', exact: true }).click();
-  await page.getByRole('button', { name: 'Complete task: A quiet little win', exact: true }).click();
+  await page.getByRole('button', { name: 'Complete task: A quiet little win', exact: true }).tap();
   await page.waitForFunction(() => window.__toneStarts > 0);
   const completedChime = await page.evaluate(() => window.__toneStarts);
   await page.evaluate(now => { window.__testNow = now; document.dispatchEvent(new Event('visibilitychange')); }, fixedNow + DAY_MS);
@@ -277,6 +378,38 @@ test('the synthesized chime renders non-silent audio with a quiet peak and a fin
   assert.ok(audio.energy > 1, 'Audio is more than an isolated click');
   assert.ok(audio.tailEnergy < 0.00001, 'The sound decays to silence');
   assert.ok(audio.endsAt > 0.3 && audio.endsAt < 3, 'The sound has a brief finite duration');
+});
+
+test('an older offline worker cannot supply incompatible task code to a new page', async t => {
+  const legacyWorker = `
+    self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
+    self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+    self.addEventListener('fetch', event => {
+      const url = new URL(event.request.url);
+      if (url.pathname.endsWith('/task-store.js') && !url.search) {
+        event.respondWith(new Response('export const oldTaskCode = true;', { headers: { 'Content-Type': 'text/javascript' } }));
+      }
+    });
+  `;
+  const fixture = createServer(async (request, response) => {
+    if (new URL(request.url, base).pathname === '/sw.js') {
+      response.writeHead(200, { 'Content-Type': 'text/javascript', 'Cache-Control': 'no-store' });
+      response.end(legacyWorker);
+      return;
+    }
+    const upstream = await fetch(`${base}${request.url}`);
+    response.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') || 'text/plain', 'Cache-Control': 'no-store' });
+    response.end(Buffer.from(await upstream.arrayBuffer()));
+  });
+  await new Promise(resolve => fixture.listen(0, '127.0.0.1', resolve));
+  t.after(() => { fixture.closeAllConnections(); fixture.close(); });
+  const { page } = await openApp(t, { url: `http://127.0.0.1:${fixture.address().port}` });
+  await page.waitForFunction(() => navigator.serviceWorker.controller);
+  assert.match(await page.evaluate(async () => (await fetch('./task-store.js')).text()), /oldTaskCode/, 'The old worker really serves the incompatible unversioned code');
+  await page.reload();
+  await addTask(page, 'The updated app still works');
+  await page.locator('.task-check').tap();
+  assert.equal(await page.locator('.task-row.done').count(), 1, 'Versioned imports bypass old task code, so touch completion still works');
 });
 
 test('mobile and desktop screens have no horizontal overflow and create preview images', async t => {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTask, reconcileTasks, toggleTask, weeklyStats, weekBounds, normalizeTasks, DAY_MS } from '../task-store.js';
+import { createTask, reconcileTasks, toggleTask, editTask, deleteTask, weeklyStats, weekBounds, normalizeTasks, DAY_MS } from '../task-store.js';
 
 const monday = new Date(2026, 10, 2, 12).getTime();
 
@@ -10,6 +10,7 @@ test('creation trims text, creates independent IDs, and rejects empty or oversiz
   assert.equal(task.createdAt, monday);
   assert.equal(task.completedAt, null);
   assert.equal(task.expiredAt, null);
+  assert.equal(task.deletedAt, null);
   assert.notEqual(createTask('Take a walk', monday).id, task.id);
   assert.throws(() => createTask(' \n '), TypeError);
   assert.throws(() => createTask('x'.repeat(241)), RangeError);
@@ -127,4 +128,90 @@ test('normalization preserves legitimate completion and canonicalizes expiration
   const completed = normalizeTasks([{ ...task, completedAt: monday + 1000, expiredAt: monday + DAY_MS }])[0];
   assert.equal(completed.expiredAt, null);
   assert.equal(completed.completedAt, monday + 1000);
+});
+
+test('editing preserves identity, completion, and the original expiration deadline', () => {
+  const task = createTask('Call home', monday);
+  const edited = editTask([task], task.id, '  Call Dad  ', monday + DAY_MS - 1000)[0];
+  assert.deepEqual(edited, { ...task, text: 'Call Dad' });
+  assert.equal(task.text, 'Call home', 'Editing does not mutate the caller’s task');
+  assert.equal(reconcileTasks([edited], monday + DAY_MS)[0].expiredAt, monday + DAY_MS);
+  const completed = toggleTask([task], task.id, monday + 1000);
+  const renamedCompletion = editTask(completed, task.id, 'Called home', monday + 2000)[0];
+  assert.equal(renamedCompletion.completedAt, monday + 1000);
+  assert.equal(renamedCompletion.createdAt, monday);
+  assert.equal(renamedCompletion.text, 'Called home');
+  assert.throws(() => editTask([task], task.id, '  ', monday), TypeError);
+  assert.throws(() => editTask([task], task.id, 'x'.repeat(241), monday), RangeError);
+});
+
+test('deleted and expired tasks cannot be edited or toggled back into the list', () => {
+  const task = createTask('Read a few pages', monday);
+  const deleted = deleteTask([task], task.id, monday + 1000);
+  assert.equal(deleted[0].deletedAt, monday + 1000);
+  assert.deepEqual(editTask(deleted, task.id, 'Changed', monday + 2000), deleted);
+  assert.deepEqual(toggleTask(deleted, task.id, monday + 2000), deleted);
+  const expired = reconcileTasks([task], monday + DAY_MS);
+  assert.deepEqual(editTask(expired, task.id, 'Changed', monday + DAY_MS), expired);
+  assert.deepEqual(deleteTask(expired, task.id, monday + DAY_MS), expired);
+});
+
+test('manual deletion counts removal on its own day and does not expire a second time', () => {
+  const task = createTask('Tidy up', monday);
+  const deletionTime = monday + 2 * 60 * 60 * 1000;
+  const deleted = deleteTask([task], task.id, deletionTime);
+  assert.equal(task.deletedAt, null, 'Deleting does not mutate the caller’s task');
+  assert.equal(deleted[0].expiredAt, null);
+  const reconciled = reconcileTasks(deleted, monday + 4 * DAY_MS);
+  assert.equal(reconciled[0].expiredAt, null);
+  const stats = weeklyStats(reconciled, monday + 4 * DAY_MS);
+  assert.equal(stats.removed, 1);
+  assert.equal(stats.completed, 0);
+  assert.equal(stats.days[0].removed, 1);
+  assert.equal(stats.days[1].removed, 0);
+  assert.deepEqual(deleteTask(deleted, task.id, deletionTime + 1000), deleted, 'Repeated deletion preserves its original event time');
+});
+
+test('deleting a completed task preserves completed totals without also counting a removal', () => {
+  const task = createTask('Go for a walk', monday);
+  const completed = toggleTask([task], task.id, monday + 1000);
+  const deleted = deleteTask(completed, task.id, monday + 2000);
+  assert.equal(deleted[0].completedAt, monday + 1000);
+  assert.equal(deleted[0].deletedAt, monday + 2000);
+  const stats = weeklyStats(deleted, monday + 3 * DAY_MS);
+  assert.equal(stats.completed, 1);
+  assert.equal(stats.removed, 0);
+});
+
+test('edits and deletes after the original deadline cannot change an invisible completed task', () => {
+  const task = createTask('Read', monday);
+  const completed = toggleTask([task], task.id, monday + 1000);
+  assert.deepEqual(editTask(completed, task.id, 'A different task', monday + DAY_MS), completed);
+  assert.deepEqual(deleteTask(completed, task.id, monday + DAY_MS), completed);
+});
+
+test('legacy saved tasks acquire a null deletion field without changing their other data', () => {
+  const task = createTask('A legacy task', monday);
+  const { deletedAt, ...legacy } = task;
+  assert.deepEqual(normalizeTasks([legacy]), [task]);
+  assert.deepEqual(reconcileTasks([legacy], monday), [task]);
+  assert.equal(toggleTask([legacy], legacy.id, monday + 1000)[0].completedAt, monday + 1000);
+});
+
+test('normalization retains valid completion history and chooses the earliest valid removal', () => {
+  const task = createTask('A saved task', monday);
+  const manuallyDeleted = normalizeTasks([{ ...task, deletedAt: monday + 1000, expiredAt: monday + DAY_MS }])[0];
+  assert.equal(manuallyDeleted.deletedAt, monday + 1000);
+  assert.equal(manuallyDeleted.expiredAt, null);
+  const lateDeletion = normalizeTasks([{ ...task, deletedAt: monday + DAY_MS + 1000 }])[0];
+  assert.equal(lateDeletion.deletedAt, null);
+  assert.equal(lateDeletion.expiredAt, monday + DAY_MS);
+  const completedThenDeleted = normalizeTasks([{ ...task, completedAt: monday + 1000, deletedAt: monday + 2000, expiredAt: monday + DAY_MS }])[0];
+  assert.equal(completedThenDeleted.completedAt, monday + 1000);
+  assert.equal(completedThenDeleted.deletedAt, monday + 2000);
+  assert.equal(completedThenDeleted.expiredAt, null);
+  const conflictingDeletion = normalizeTasks([{ ...task, completedAt: monday + 2000, deletedAt: monday + 1000 }])[0];
+  assert.equal(conflictingDeletion.completedAt, monday + 2000);
+  assert.equal(conflictingDeletion.deletedAt, null);
+  assert.equal(normalizeTasks([{ ...task, deletedAt: monday - 1 }])[0].deletedAt, null);
 });
