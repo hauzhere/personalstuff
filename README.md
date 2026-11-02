@@ -21,6 +21,7 @@ Install before adding important tasks, and keep using the same installed app and
 - Each task gets exactly 24 hours from the moment you create it, rather than until midnight.
 - The time on the right rounds the remaining time up to whole hours. It is faint grey above 18 hours, normal above 3 hours through 18 hours, muted amber above 1 hour through 3 hours, and red at 1 hour or less.
 - Tap a task’s circle or line to cross it off; tap again before its deadline to mark it unfinished. Completed tasks stay in place with a crossed-out line.
+- Crossing off a task plays a quiet, original bell chime. The sound is generated on the device and works offline. Turn it off with **Help → Completion sound**. Device volume and iOS audio settings still apply. Undoing a completion or letting a task expire stays silent.
 - At the original deadline, a completed task leaves the visible list and remains counted as completed. An unfinished task is recorded as removed at that deadline.
 - iPhone does not let a closed web app run continuously in the background. Expiration is checked while Gone is open and immediately when you return. Overdue tasks disappear on return, and their reports use the original deadline.
 - Reports follow your device’s local time, with weeks starting on Monday. Use the report arrows to revisit earlier weeks. Completion is counted on the day you finish a task; removal is counted on its deadline day.

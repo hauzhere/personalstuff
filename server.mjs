@@ -5,7 +5,7 @@ import { resolve, extname } from 'node:path';
 const root = resolve(process.env.SERVE_DIST === '1' ? 'dist' : '.');
 const port = Number(process.env.PORT || 3000);
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml' };
-const publicFiles = new Set(['index.html', 'styles.css', 'app.js', 'task-store.js', 'sw.js', 'manifest.webmanifest']);
+const publicFiles = new Set(['index.html', 'styles.css', 'app.js', 'task-store.js', 'completion-sound.js', 'sw.js', 'manifest.webmanifest']);
 
 http.createServer(async (req, res) => {
   if (req.method !== 'GET' && req.method !== 'HEAD') {

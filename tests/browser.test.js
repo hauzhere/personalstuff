@@ -212,6 +212,73 @@ test('corrupt saved data is preserved with an explicit unsaved-session warning',
   assert.equal(await page.locator('#task-count').textContent(), '1');
 });
 
+test('completion chime works offline, stays silent on undo, and remembers the sound preference', async t => {
+  const { page, context } = await openApp(t);
+  await context.addInitScript(() => {
+    window.__toneStarts = 0;
+    const start = OscillatorNode.prototype.start;
+    OscillatorNode.prototype.start = function (...args) {
+      window.__toneStarts += 1;
+      return start.apply(this, args);
+    };
+  });
+  await page.reload();
+  await page.waitForFunction(() => navigator.serviceWorker.controller);
+  await context.setOffline(true);
+  await addTask(page, 'A quiet little win');
+  assert.equal(await page.evaluate(() => window.__toneStarts), 0, 'Adding a task is silent');
+  await page.getByRole('button', { name: 'Complete task: A quiet little win', exact: true }).click();
+  await page.waitForFunction(() => window.__toneStarts > 0);
+  const firstChime = await page.evaluate(() => window.__toneStarts);
+  await page.getByRole('button', { name: 'Mark unfinished: A quiet little win', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.__toneStarts), firstChime, 'Undoing completion is silent');
+  await page.getByRole('button', { name: 'About Gone and install on iPhone' }).click();
+  await page.getByRole('checkbox', { name: 'Completion sound' }).uncheck();
+  await page.getByRole('button', { name: 'Close about dialog' }).click();
+  await page.getByRole('button', { name: 'Complete task: A quiet little win', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.__toneStarts), firstChime, 'Disabled sound never schedules tones');
+  await page.reload();
+  assert.equal(await page.evaluate(() => window.__toneStarts), 0, 'Reloading completed tasks is silent');
+  await page.getByRole('button', { name: 'About Gone and install on iPhone' }).click();
+  assert.equal(await page.getByRole('checkbox', { name: 'Completion sound' }).isChecked(), false, 'Sound preference survives an offline reload');
+  await page.getByRole('checkbox', { name: 'Completion sound' }).check();
+  await page.getByRole('button', { name: 'Close about dialog' }).click();
+  await page.getByRole('button', { name: 'Mark unfinished: A quiet little win', exact: true }).click();
+  await page.getByRole('button', { name: 'Complete task: A quiet little win', exact: true }).click();
+  await page.waitForFunction(() => window.__toneStarts > 0);
+  const completedChime = await page.evaluate(() => window.__toneStarts);
+  await page.evaluate(now => { window.__testNow = now; document.dispatchEvent(new Event('visibilitychange')); }, fixedNow + DAY_MS);
+  assert.equal(await page.evaluate(() => window.__toneStarts), completedChime, 'Expiration does not play a sound');
+});
+
+test('the synthesized chime renders non-silent audio with a quiet peak and a finite decay', async t => {
+  const { page } = await openApp(t);
+  const audio = await page.evaluate(async () => {
+    const { scheduleCompletionChime } = await import('./completion-sound.js');
+    const sampleRate = 44100;
+    const context = new OfflineAudioContext(2, sampleRate * 3, sampleRate);
+    const { endsAt } = scheduleCompletionChime(context, 0);
+    const buffer = await context.startRendering();
+    let peak = 0;
+    let energy = 0;
+    let tailEnergy = 0;
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const samples = buffer.getChannelData(channel);
+      for (let i = 0; i < samples.length; i++) {
+        peak = Math.max(peak, Math.abs(samples[i]));
+        energy += samples[i] ** 2;
+        if (i > samples.length - sampleRate / 10) tailEnergy += samples[i] ** 2;
+      }
+    }
+    return { peak, energy, tailEnergy, endsAt };
+  });
+  assert.ok(audio.peak > 0.01, 'The actual audio graph produces a chime');
+  assert.ok(audio.peak < 0.35, 'The chime stays comfortably below clipping');
+  assert.ok(audio.energy > 1, 'Audio is more than an isolated click');
+  assert.ok(audio.tailEnergy < 0.00001, 'The sound decays to silence');
+  assert.ok(audio.endsAt > 0.3 && audio.endsAt < 3, 'The sound has a brief finite duration');
+});
+
 test('mobile and desktop screens have no horizontal overflow and create preview images', async t => {
   const { page } = await openApp(t);
   await mkdir('artifacts', { recursive: true });

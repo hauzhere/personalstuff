@@ -1,7 +1,11 @@
 import { DAY_MS, createTask, normalizeTasks, reconcileTasks, toggleTask, weeklyStats, weekBounds } from './task-store.js';
+import { playCompletionSound } from './completion-sound.js';
 
 const $ = id => document.getElementById(id);
 const STORAGE_KEY = 'gone.tasks.v1';
+const SOUND_KEY = 'gone.sound.v1';
+let soundEnabled = true;
+try { soundEnabled = localStorage.getItem(SOUND_KEY) !== 'off'; } catch { /* Audio preference can stay in memory when storage is unavailable. */ }
 let tasks = [];
 let canPersist = true;
 let weekOffset = 0;
@@ -83,10 +87,15 @@ function taskRow(task, now) {
   button.append(check, label, remaining);
   button.addEventListener('click', event => {
     if (canPersist) tasks = readSaved();
+    const wasUnfinished = tasks.find(item => item.id === task.id)?.completedAt === null;
     tasks = toggleTask(tasks, task.id);
+    const result = tasks.find(item => item.id === task.id);
+    if (soundEnabled && wasUnfinished && result?.completedAt !== null && result?.expiredAt === null) {
+      // This call stays inside the tap handler so Safari can unlock audio.
+      void playCompletionSound();
+    }
     persist();
     render();
-    const result = tasks.find(item => item.id === task.id);
     announce(result?.expiredAt !== null ? 'That task has reached its 24 hours and was let go.' : result?.completedAt !== null ? 'A little win. Task completed.' : 'Task marked unfinished.');
     if (event.detail === 0) {
       const replacement = [...document.querySelectorAll('.task-toggle')].find(item => item.dataset.taskId === task.id);
@@ -188,8 +197,19 @@ $('previous-week').addEventListener('click', () => { weekOffset -= 1; render(); 
 $('next-week').addEventListener('click', () => { weekOffset = Math.min(0, weekOffset + 1); render(); });
 $('help-button').addEventListener('click', () => $('help-dialog').showModal());
 $('close-help').addEventListener('click', () => $('help-dialog').close());
+$('sound-toggle').checked = soundEnabled;
+$('sound-toggle').addEventListener('change', () => {
+  soundEnabled = $('sound-toggle').checked;
+  try { localStorage.setItem(SOUND_KEY, soundEnabled ? 'on' : 'off'); } catch { /* Task saving reports storage problems separately. */ }
+});
 $('help-dialog').addEventListener('click', event => { if (event.target === $('help-dialog')) { const r = $('help-dialog').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) $('help-dialog').close(); } });
-window.addEventListener('storage', event => { if (event.key === STORAGE_KEY || event.key === null) { tasks = readSaved(); refresh(); } });
+window.addEventListener('storage', event => {
+  if (event.key === STORAGE_KEY || event.key === null) { tasks = readSaved(); refresh(); }
+  if (event.key === SOUND_KEY || event.key === null) {
+    soundEnabled = event.newValue !== 'off';
+    $('sound-toggle').checked = soundEnabled;
+  }
+});
 window.addEventListener('pageshow', refresh);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { if (canPersist) tasks = readSaved(); refresh(); } });
 
