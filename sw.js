@@ -1,6 +1,6 @@
 /* Bump the shell version when shipping changes to a precached file. */
 const CACHE_PREFIX = 'gone-shell-';
-const CACHE_NAME = `${CACHE_PREFIX}v2`;
+const CACHE_NAME = `${CACHE_PREFIX}v3`;
 const SHELL_FILES = [
   './',
   './index.html',
