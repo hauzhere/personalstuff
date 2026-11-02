@@ -1,9 +1,11 @@
-import { DAY_MS, createTask, normalizeTasks, reconcileTasks, toggleTask, editTask, deleteTask, moveTask, weeklyStats, weekBounds } from './task-store.js?v=6';
-import { playCompletionSound } from './completion-sound.js?v=6';
+import { DAY_MS, createTask, normalizeTasks, reconcileTasks, toggleTask, editTask, deleteTask, moveTask, weeklyStats, weekBounds } from './task-store.js?v=7';
+import { playCompletionSound } from './completion-sound.js?v=7';
 
 const $ = id => document.getElementById(id);
 const STORAGE_KEY = 'gone.tasks.v1';
 const SOUND_KEY = 'gone.sound.v1';
+const DRAFT_KEY = 'gone.draft.v1';
+let composingEntry = false;
 let soundEnabled = true;
 try { soundEnabled = localStorage.getItem(SOUND_KEY) !== 'off'; } catch { /* Audio preference can stay in memory when storage is unavailable. */ }
 let tasks = [];
@@ -310,6 +312,7 @@ $('task-list').addEventListener('click', event => {
 });
 
 document.addEventListener('pointerdown', event => {
+  if (!event.target.closest('.task-form') && !composingEntry && commitCurrentLine()) updateEntryLines();
   if (!event.target.closest('.task-row')) for (const row of taskRows.values()) setRowAction(row, '');
 });
 
@@ -371,18 +374,24 @@ function render() {
   if (deadlines.length) expiryTimer = setTimeout(refresh, Math.min(...deadlines, 2_147_483_647));
 }
 
-$('task-input').addEventListener('input', () => $('task-input').setCustomValidity(''));
-$('task-input').addEventListener('keydown', event => {
-  if (event.key === 'Enter') {
-    // Let the keyboard finish an IME composition without creating a task.
-    if (event.isComposing || event.keyCode === 229) return;
-    event.preventDefault();
-    $('task-form').requestSubmit();
+function saveDraft() {
+  try {
+    const value = $('task-input').value;
+    if (value) localStorage.setItem(DRAFT_KEY, value);
+    else localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    if (canPersist) storageWarning('Your current line could not be saved on this device. Keep the app open until you add it.');
   }
-});
-$('task-form').addEventListener('submit', event => {
-  event.preventDefault();
+}
+
+function updateEntryLines() {
+  $('next-task-form').hidden = !$('task-input').value.trim();
+  saveDraft();
+}
+
+function commitCurrentLine() {
   const input = $('task-input');
+  if (composingEntry || !input.value.trim()) return false;
   try {
     const task = createTask(input.value);
     if (canPersist) tasks = readSaved();
@@ -390,15 +399,81 @@ $('task-form').addEventListener('submit', event => {
     persist();
     input.value = '';
     input.setCustomValidity('');
+    saveDraft();
     render();
-    input.focus();
     announce('Task added.');
-    reloadIfReady();
+    return true;
   } catch (error) {
     input.setCustomValidity(error.message);
     input.reportValidity();
+    return false;
   }
-});
+}
+
+function advanceEntryLine() {
+  if (composingEntry || !$('task-input').value.trim()) return;
+  const previousForm = $('task-form');
+  const previousInput = $('task-input');
+  const nextForm = $('next-task-form');
+  const nextInput = $('next-task-input');
+  if (!commitCurrentLine()) return;
+  // Rotate roles without replacing or refocusing the input the finger just chose.
+  previousForm.removeAttribute('id');
+  previousInput.removeAttribute('id');
+  nextForm.id = 'task-form';
+  nextInput.id = 'task-input';
+  nextForm.querySelector('label').htmlFor = 'task-input';
+  nextForm.querySelector('label').textContent = 'New task';
+  previousForm.id = 'next-task-form';
+  previousInput.id = 'next-task-input';
+  previousForm.querySelector('label').htmlFor = 'next-task-input';
+  previousForm.querySelector('label').textContent = 'Next task';
+  nextForm.after(previousForm);
+  updateEntryLines();
+}
+
+for (const form of document.querySelectorAll('.task-form')) {
+  const input = form.querySelector('input');
+  input.addEventListener('focus', () => {
+    if (input.id === 'next-task-input') advanceEntryLine();
+  });
+  input.addEventListener('input', () => {
+    input.setCustomValidity('');
+    updateEntryLines();
+  });
+  input.addEventListener('compositionstart', () => { composingEntry = true; });
+  input.addEventListener('compositionend', () => {
+    composingEntry = false;
+    updateEntryLines();
+    if (document.activeElement === $('next-task-input')) advanceEntryLine();
+  });
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      if (event.isComposing || event.keyCode === 229 || composingEntry) return;
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+  input.addEventListener('blur', () => {
+    setTimeout(() => {
+      if (!document.hidden && !document.activeElement?.closest('.task-form') && !composingEntry) {
+        if (commitCurrentLine()) updateEntryLines();
+        reloadIfReady();
+      }
+    }, 0);
+  });
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    if (input.id === 'next-task-input') advanceEntryLine();
+    else if (commitCurrentLine()) {
+      updateEntryLines();
+      $('task-input').focus();
+      reloadIfReady();
+    }
+  });
+}
+try { $('task-input').value = (localStorage.getItem(DRAFT_KEY) || '').slice(0, 240); } catch { /* Task storage reports inaccessible storage. */ }
+updateEntryLines();
 
 function reloadIfReady() {
   if (pendingReload && !dragState && !$('task-input').value && !$('edit-dialog').open) location.reload();
