@@ -1,0 +1,87 @@
+:root {
+  color-scheme: light;
+  --background: #f7f8f2;
+  --green: #174c35;
+  --muted: #72816e;
+  --faint: #a5b09e;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--background); color: var(--green); }
+button, input { font: inherit; color: inherit; -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; touch-action: manipulation; }
+a { color: inherit; }
+button:disabled { opacity: .3; cursor: default; }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--green); outline-offset: 5px; }
+[hidden] { display: none !important; }
+
+.app-shell { width: min(100%, 688px); margin: 0 auto; padding: 64px 36px; padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+.app-header { display: flex; align-items: center; justify-content: space-between; }
+.wordmark { text-decoration: none; font-size: 28px; font-weight: 500; letter-spacing: -1.2px; }
+.text-button { padding: 12px 0 12px 12px; border: 0; background: none; font-size: 12px; color: var(--muted); }
+main { margin-top: 52px; }
+.view-tabs { display: flex; gap: 28px; margin-bottom: 42px; }
+.view-tab { padding: 8px 0; border: 0; border-bottom: 1px solid transparent; background: none; font-size: 13px; color: var(--muted); }
+.view-tab.active { color: var(--green); border-bottom-color: var(--green); }
+.task-count { margin-left: 5px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.date-line { font-size: 12px; color: var(--muted); margin: 0 0 23px; }
+.task-list { margin: 0; }
+.task-toggle { display: flex; align-items: center; width: 100%; min-height: 58px; padding: 13px 0; gap: 16px; border: 0; background: none; text-align: left; }
+.task-check, .input-circle { display: block; width: 18px; height: 18px; flex: 0 0 18px; border: 1px solid #809975; border-radius: 50%; }
+.task-text { font-size: 18px; line-height: 1.7; overflow-wrap: anywhere; }
+.task-row.done .task-check { background: var(--green); border-color: var(--green); }
+.task-row.done .task-text { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1px; }
+.task-form { display: flex; align-items: center; gap: 16px; min-height: 58px; padding: 13px 0; border: 0; background: transparent; }
+.input-circle { border-color: #c5cebe; }
+.task-form:focus-within .input-circle { border-color: var(--green); }
+.task-form input { display: block; width: 100%; min-width: 0; padding: 0; margin: 0; border: 0; outline: none; border-radius: 0; background: transparent; font-size: 18px; line-height: 1.7; caret-color: var(--green); }
+.task-form input::placeholder { color: var(--faint); opacity: 1; }
+.input-hint { margin: 13px 0 0 34px; color: var(--muted); font-size: 11px; }
+
+.report-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 32px; }
+#week-range { margin: 0; font-size: 12px; color: var(--muted); }
+.week-navigation { display: flex; align-items: center; gap: 9px; }
+.week-arrow { width: 32px; height: 40px; padding: 0; border: 0; background: none; font-size: 21px; }
+#week-badge { min-width: 72px; text-align: center; font-size: 9px; color: var(--muted); letter-spacing: .6px; }
+.weekly-totals { display: flex; gap: 72px; margin: 0 0 38px; }
+.weekly-totals dt { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.weekly-totals dd { margin: 0; font-size: 32px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.week-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.week-table th, .week-table td { padding: 12px 0; font-weight: 400; }
+.week-table thead th { color: var(--muted); font-size: 11px; padding-bottom: 18px; }
+.week-table th { text-align: left; }
+.week-table td, .week-table thead th:not(:first-child) { text-align: right; }
+.report-footnote { margin: 28px 0 0; font-size: 11px; line-height: 1.9; color: var(--muted); }
+.storage-warning { font-size: 12px; line-height: 1.7; color: #77582d; margin-top: 28px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+dialog { width: min(460px, calc(100% - 40px)); max-height: calc(100dvh - 40px); overflow-y: auto; padding: 28px; border: 0; background: var(--background); color: var(--green); }
+dialog::backdrop { background: #1d382a55; }
+.dialog-header { display: flex; justify-content: space-between; align-items: center; gap: 15px; }
+dialog h2 { font-size: 18px; font-weight: 500; margin: 0; }
+dialog h3 { font-size: 13px; font-weight: 500; margin: 26px 0 10px; }
+dialog p, dialog li { font-size: 12px; line-height: 1.9; color: var(--muted); }
+dialog ol { padding-left: 18px; }
+dialog li { margin-bottom: 5px; }
+#offline-status { font-size: 11px; }
+.privacy-note { margin-top: 25px; font-size: 10px; }
+
+@media (max-width: 600px) {
+  .app-shell { padding: calc(32px + env(safe-area-inset-top)) 26px calc(40px + env(safe-area-inset-bottom)); }
+  .wordmark { font-size: 26px; }
+  main { margin-top: 36px; }
+  .view-tabs { margin-bottom: 32px; }
+  .task-text, .task-form input { font-size: 17px; }
+  .report-heading { gap: 6px; }
+  .week-navigation { gap: 3px; }
+  #week-range { font-size: 11px; }
+  #week-badge { font-size: 8px; min-width: 67px; }
+  .week-arrow { width: 26px; }
+  .weekly-totals { gap: 65px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
