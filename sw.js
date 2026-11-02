@@ -1,12 +1,13 @@
 /* Bump the shell version when shipping changes to a precached file. */
 const CACHE_PREFIX = 'gone-shell-';
-const CACHE_NAME = `${CACHE_PREFIX}v3`;
+const CACHE_NAME = `${CACHE_PREFIX}v4`;
 const SHELL_FILES = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './task-store.js',
+  './completion-sound.js',
   './manifest.webmanifest',
   './icons/icon.svg',
   './icons/icon-192.png',

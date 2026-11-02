@@ -72,6 +72,8 @@ dialog ol { padding-left: 18px; }
 dialog li { margin-bottom: 5px; }
 #offline-status { font-size: 11px; }
 .privacy-note { margin-top: 25px; font-size: 10px; }
+.sound-setting { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; margin-top: 12px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.sound-setting input { width: 16px; height: 16px; accent-color: var(--green); }
 
 @media (max-width: 600px) {
   .app-shell { padding: calc(32px + env(safe-area-inset-top)) 26px calc(40px + env(safe-area-inset-bottom)); }
