@@ -118,6 +118,23 @@ export function deleteTask(tasks, id, nowMs = Date.now()) {
   });
 }
 
+/** The array order is the saved task order; movement never changes task history. */
+export function moveTask(tasks, id, beforeId = null, nowMs = Date.now()) {
+  const reconciled = reconcileTasks(tasks, nowMs);
+  const visible = task => task.deletedAt === null && task.expiredAt === null
+    && nowMs < task.createdAt + DAY_MS;
+  const index = reconciled.findIndex(task => task.id === id && visible(task));
+  if (index < 0 || beforeId === id) return reconciled;
+  if (beforeId !== null && !reconciled.some(task => task.id === beforeId && visible(task))) {
+    return reconciled;
+  }
+  const [moving] = reconciled.splice(index, 1);
+  const destination = beforeId === null ? reconciled.length
+    : reconciled.findIndex(task => task.id === beforeId);
+  reconciled.splice(destination, 0, moving);
+  return reconciled;
+}
+
 /** Local calendar weeks run from Monday 00:00 to the following Monday. */
 export function weekBounds(nowMs = Date.now()) {
   requireTime(nowMs);

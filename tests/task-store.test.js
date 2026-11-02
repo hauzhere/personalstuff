@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTask, reconcileTasks, toggleTask, editTask, deleteTask, weeklyStats, weekBounds, normalizeTasks, DAY_MS } from '../task-store.js';
+import { createTask, reconcileTasks, toggleTask, editTask, deleteTask, moveTask, weeklyStats, weekBounds, normalizeTasks, DAY_MS } from '../task-store.js';
 
 const monday = new Date(2026, 10, 2, 12).getTime();
 
@@ -214,4 +214,60 @@ test('normalization retains valid completion history and chooses the earliest va
   assert.equal(conflictingDeletion.completedAt, monday + 2000);
   assert.equal(conflictingDeletion.deletedAt, null);
   assert.equal(normalizeTasks([{ ...task, deletedAt: monday - 1 }])[0].deletedAt, null);
+});
+
+test('moving tasks up, down, and to the end preserves their data without mutating input', () => {
+  const a = Object.freeze(createTask('First', monday));
+  const b = Object.freeze(createTask('Second', monday + 1000));
+  const c = Object.freeze(createTask('Third', monday + 2000));
+  const tasks = Object.freeze([a, b, c]);
+  const now = monday + 5000;
+  assert.deepEqual(moveTask(tasks, c.id, a.id, now), [c, a, b]);
+  assert.deepEqual(moveTask(tasks, a.id, c.id, now), [b, a, c]);
+  assert.deepEqual(moveTask(tasks, a.id, null, now), [b, c, a]);
+  assert.deepEqual(tasks, [a, b, c]);
+});
+
+test('moving a task keeps deleted and expired history and completed report totals', () => {
+  const expired = reconcileTasks([createTask('Old task', monday - DAY_MS - 1000)], monday)[0];
+  const completed = { ...createTask('Finished', monday), completedAt: monday + 1000 };
+  const deleted = { ...createTask('Removed', monday), deletedAt: monday + 2000 };
+  const pending = createTask('Still to do', monday + 1000);
+  const tasks = [expired, completed, deleted, pending];
+  const now = monday + 5000;
+  const moved = moveTask(tasks, pending.id, completed.id, now);
+  assert.deepEqual(moved, [expired, pending, completed, deleted]);
+  assert.deepEqual(weeklyStats(moved, now), weeklyStats(tasks, now));
+  const completedMoved = moveTask(tasks, completed.id, null, now);
+  assert.deepEqual(completedMoved, [expired, deleted, pending, completed]);
+});
+
+test('invalid move sources and targets cannot resurrect invisible tasks', () => {
+  const active = createTask('Active', monday);
+  const deleted = { ...createTask('Deleted', monday), deletedAt: monday + 1000 };
+  const expired = createTask('Expired', monday - DAY_MS);
+  const oldCompleted = { ...createTask('Old win', monday - DAY_MS), completedAt: monday - DAY_MS + 1000 };
+  const tasks = [active, deleted, expired, oldCompleted];
+  const now = monday + 5000;
+  const expected = reconcileTasks(tasks, now);
+  for (const id of ['missing', deleted.id, expired.id, oldCompleted.id]) {
+    assert.deepEqual(moveTask(tasks, id, active.id, now), expected);
+  }
+  for (const beforeId of ['missing', active.id, deleted.id, expired.id, oldCompleted.id]) {
+    assert.deepEqual(moveTask(tasks, active.id, beforeId, now), expected);
+  }
+});
+
+test('saved and legacy task arrays retain their chosen order through normalization and actions', () => {
+  const a = createTask('Oldest', monday);
+  const b = createTask('Middle', monday + 1000);
+  const c = createTask('Newest', monday + 2000);
+  const legacy = [c, a, b].map(({ deletedAt, ...task }) => task);
+  const normalized = normalizeTasks(legacy);
+  assert.deepEqual(normalized, [c, a, b]);
+  const moved = moveTask(normalized, a.id, c.id, monday + 5000);
+  const edited = editTask(moved, c.id, 'Renamed', monday + 6000);
+  const completed = toggleTask(edited, a.id, monday + 7000);
+  assert.deepEqual(completed.map(task => task.id), [a.id, c.id, b.id]);
+  assert.deepEqual(normalizeTasks(JSON.parse(JSON.stringify(completed))), completed);
 });

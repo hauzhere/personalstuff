@@ -75,6 +75,30 @@ async function swipeTask(page, id, dx, dy = 0) {
   }
 }
 
+async function holdDragTask(page, id, targetId) {
+  const source = page.locator(`.task-toggle[data-task-id="${id}"]`);
+  await source.scrollIntoViewIfNeeded();
+  const from = await source.boundingBox();
+  const to = await page.locator(`.task-toggle[data-task-id="${targetId}"]`).boundingBox();
+  assert.ok(from && to, 'Both reorder targets are visible');
+  const x = from.x + from.width / 2;
+  const y = from.y + from.height / 2;
+  const endY = to.y + to.height / 2 + (to.y > from.y ? 20 : -20);
+  const session = await page.context().newCDPSession(page);
+  try {
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
+    await page.waitForTimeout(500);
+    for (let step = 1; step <= 8; step++) {
+      await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + (endY - y) * step / 8, id: 1 }] });
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+    }
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+  } finally {
+    await session.detach();
+  }
+}
+
 test('touching a task crosses it immediately while typing and survives a refresh during touch-down', async t => {
   const { page } = await openApp(t);
   await addTask(page, 'Finish this on my phone');
@@ -95,10 +119,32 @@ test('touching a task crosses it immediately while typing and survives a refresh
   assert.equal(await page.locator('.task-row.done').count(), 0, 'The latest touched state survives reload');
 });
 
-test('a left swipe reveals editing without completing the task or extending its deadline', async t => {
+test('a touch completion survives legacy and mouse-labelled compatibility clicks', async t => {
+  const { page } = await openApp(t, { seed: [task('touch-once', 'Stay crossed out', fixedNow)] });
+  const row = page.locator('.task-toggle[data-task-id="touch-once"]');
+  await row.tap();
+  assert.equal(await page.locator('.task-row.done').count(), 1);
+  await row.evaluate(button => button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })));
+  assert.equal(await page.locator('.task-row.done').count(), 1, 'A legacy compatibility click must not toggle the same touch twice');
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('gone.tasks.v1')).tasks[0]);
+  assert.equal(stored.completedAt, fixedNow, 'The completed state is persisted after the duplicate click');
+  await page.reload();
+  assert.equal(await page.locator('.task-row.done').count(), 1, 'Completion remains crossed after reopening');
+  await row.tap();
+  assert.equal(await page.locator('.task-row.done').count(), 0, 'A separate genuine touch can undo completion');
+  await row.evaluate(button => button.dispatchEvent(new PointerEvent('click', { bubbles: true, detail: 1, pointerType: 'mouse' })));
+  assert.equal(await page.locator('.task-row.done').count(), 0, 'A compatibility click labelled as mouse must not undo the latest touch');
+  await row.click();
+  assert.equal(await page.locator('.task-row.done').count(), 1, 'A real mouse interaction with its own pointerdown still works');
+  await row.click();
+  assert.equal(await page.locator('.task-row.done').count(), 0, 'A second real mouse interaction can deliberately undo');
+});
+
+test('a right swipe reveals editing without completing the task or extending its deadline', async t => {
   const createdAt = fixedNow - 2 * 60 * 60 * 1000;
   const { page } = await openApp(t, { seed: [task('editable', 'Make a small change', createdAt)] });
-  await swipeTask(page, 'editable', -90);
+  await swipeTask(page, 'editable', 90);
   assert.equal(await page.locator('.task-row.done').count(), 0, 'Swiping does not complete the task');
   const edit = page.getByRole('button', { name: 'Edit task: Make a small change', exact: true });
   assert.equal(await edit.isVisible(), true);
@@ -114,20 +160,20 @@ test('a left swipe reveals editing without completing the task or extending its 
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('gone.tasks.v1')).tasks[0]);
   assert.equal(saved.createdAt, createdAt, 'Editing preserves the original expiration deadline');
   assert.equal(saved.completedAt, null);
-  await swipeTask(page, 'editable', -90);
+  await swipeTask(page, 'editable', 90);
   await page.getByRole('button', { name: 'Edit task: Call home', exact: true }).tap();
   await input.fill('Discard this draft');
   await page.locator('#edit-dialog').getByRole('button', { name: 'Cancel', exact: true }).tap();
   assert.equal(await page.locator('.task-text').textContent(), 'Call home', 'Cancel leaves the stored task unchanged');
 });
 
-test('a right swipe reveals deletion while preserving completed versus removed weekly totals', async t => {
+test('a left swipe reveals deletion while preserving completed versus removed weekly totals', async t => {
   const hour = 60 * 60 * 1000;
   const { page } = await openApp(t, { seed: [
     task('pending-delete', 'Remove this task', fixedNow - 2 * hour),
     task('done-delete', 'Finished first', fixedNow - 2 * hour, fixedNow - hour),
   ] });
-  await swipeTask(page, 'pending-delete', 90);
+  await swipeTask(page, 'pending-delete', -90);
   assert.equal(await page.locator('.task-row.done').count(), 1, 'Swiping alone leaves completion states unchanged');
   await page.getByRole('button', { name: 'Delete task: Remove this task', exact: true }).tap();
   assert.equal(await page.locator('.task-row').count(), 1);
@@ -137,7 +183,7 @@ test('a right swipe reveals deletion while preserving completed versus removed w
   assert.equal(await page.locator('#stat-removed').textContent(), '1');
   assert.equal(await page.locator('#stat-completed').textContent(), '1');
   await page.getByRole('button', { name: 'Today', exact: false }).tap();
-  await swipeTask(page, 'done-delete', 90);
+  await swipeTask(page, 'done-delete', -90);
   await page.getByRole('button', { name: 'Delete task: Finished first', exact: true }).tap();
   assert.equal(await page.locator('.task-row').count(), 0);
   await page.getByRole('button', { name: 'Weekly report' }).tap();
@@ -153,6 +199,36 @@ test('vertical touch gestures do not expose task actions or mark a task complete
   assert.equal(await page.locator('.task-row.done').count(), 0);
   assert.equal(await page.getByRole('button', { name: 'Edit task: Leave this task alone', exact: true }).isVisible(), false);
   assert.equal(await page.getByRole('button', { name: 'Delete task: Leave this task alone', exact: true }).isVisible(), false);
+});
+
+test('holding and dragging reorders tasks down and up without changing their status or deadlines', async t => {
+  const seed = [
+    task('first', 'Move this task', fixedNow - 3000),
+    task('second', 'Already completed', fixedNow - 2000, fixedNow - 1000),
+    task('third', 'Another small step', fixedNow - 1000),
+  ];
+  const { page } = await openApp(t, { seed });
+  const visibleOrder = () => page.locator('.task-row').evaluateAll(rows => rows.map(row => row.dataset.taskId));
+  assert.deepEqual(await visibleOrder(), ['first', 'second', 'third']);
+  await holdDragTask(page, 'first', 'third');
+  assert.deepEqual(await visibleOrder(), ['second', 'third', 'first'], 'A held task can move below the other tasks');
+  let stored = await page.evaluate(() => JSON.parse(localStorage.getItem('gone.tasks.v1')).tasks);
+  assert.deepEqual(stored.map(item => item.id), ['second', 'third', 'first'], 'The new task order is saved on the device');
+  for (const original of seed) {
+    const updated = stored.find(item => item.id === original.id);
+    assert.equal(updated.createdAt, original.createdAt, 'Reordering does not restart the 24-hour deadline');
+    assert.equal(updated.completedAt, original.completedAt, 'Dragging does not toggle completion');
+  }
+  assert.equal(await page.locator('.task-row.done').count(), 1);
+  await page.reload();
+  assert.deepEqual(await visibleOrder(), ['second', 'third', 'first'], 'The reordered list survives reopening');
+  await holdDragTask(page, 'first', 'second');
+  assert.deepEqual(await visibleOrder(), ['first', 'second', 'third'], 'A held task can move back above the other tasks');
+  stored = await page.evaluate(() => JSON.parse(localStorage.getItem('gone.tasks.v1')).tasks);
+  assert.deepEqual(stored.map(item => item.id), ['first', 'second', 'third']);
+  assert.equal(await page.locator('.task-row.done').count(), 1);
+  await page.reload();
+  assert.deepEqual(await visibleOrder(), ['first', 'second', 'third']);
 });
 
 test('iPhone layout adds, crosses off, undoes and persists tasks across reload', async t => {

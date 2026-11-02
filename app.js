@@ -1,5 +1,5 @@
-import { DAY_MS, createTask, normalizeTasks, reconcileTasks, toggleTask, editTask, deleteTask, weeklyStats, weekBounds } from './task-store.js?v=5';
-import { playCompletionSound } from './completion-sound.js?v=5';
+import { DAY_MS, createTask, normalizeTasks, reconcileTasks, toggleTask, editTask, deleteTask, moveTask, weeklyStats, weekBounds } from './task-store.js?v=6';
+import { playCompletionSound } from './completion-sound.js?v=6';
 
 const $ = id => document.getElementById(id);
 const STORAGE_KEY = 'gone.tasks.v1';
@@ -12,6 +12,7 @@ let weekOffset = 0;
 let expiryTimer;
 let editingTaskId = null;
 let pendingReload = false;
+let dragState = null;
 const taskRows = new Map();
 
 function storageWarning(message) {
@@ -49,6 +50,7 @@ function persist() {
 function announce(message) { $('announcement').textContent = message; }
 
 function refresh() {
+  if (dragState) return;
   const next = reconcileTasks(tasks);
   if (next.some((task, i) => task.expiredAt !== tasks[i].expiredAt)) {
     tasks = next;
@@ -77,17 +79,85 @@ function setRowAction(row, action) {
   row.querySelector('.task-menu').setAttribute('aria-expanded', String(Boolean(action)));
 }
 
+function placeDraggedTask(clientY) {
+  if (!dragState) return;
+  dragState.clientY = clientY;
+  dragState.row.style.top = `${clientY - dragState.offsetY}px`;
+  const others = [...$('task-list').querySelectorAll('.task-row')].filter(row => row !== dragState.row);
+  const target = others.find(row => {
+    const bounds = row.getBoundingClientRect();
+    return clientY < bounds.top + bounds.height / 2;
+  });
+  const before = target || null;
+  if (dragState.placeholder.nextElementSibling !== before) $('task-list').insertBefore(dragState.placeholder, before);
+}
+
+function dragScroll() {
+  if (!dragState) return;
+  const edge = 64;
+  const y = dragState.clientY;
+  const speed = y < edge ? -Math.ceil((edge - y) / 7)
+    : y > innerHeight - edge ? Math.ceil((y - innerHeight + edge) / 7) : 0;
+  if (speed) { window.scrollBy(0, speed); placeDraggedTask(y); }
+  dragState.frame = requestAnimationFrame(dragScroll);
+}
+
+function startDragging(row, gesture) {
+  if (dragState || !row.isConnected) return;
+  const bounds = row.getBoundingClientRect();
+  for (const other of taskRows.values()) setRowAction(other, '');
+  const placeholder = document.createElement('div');
+  placeholder.className = 'task-placeholder';
+  placeholder.style.height = `${bounds.height}px`;
+  placeholder.setAttribute('aria-hidden', 'true');
+  row.before(placeholder);
+  dragState = { row, placeholder, id: row.dataset.taskId, offsetY: gesture.y - bounds.top, clientY: gesture.y };
+  row.classList.add('dragging');
+  Object.assign(row.style, { position: 'fixed', left: `${bounds.left}px`, top: `${bounds.top}px`, width: `${bounds.width}px`, zIndex: '10' });
+  try { row.setPointerCapture(gesture.id); } catch { /* The touch may have already ended. */ }
+  row.ignoreClickUntil = performance.now() + 2000;
+  announce('Task picked up. Drag up or down, then release.');
+  dragScroll();
+}
+
+function finishDragging(cancelled = false) {
+  if (!dragState) return;
+  const drag = dragState;
+  let after = drag.placeholder.nextElementSibling;
+  while (after && !after.classList.contains('task-row')) after = after.nextElementSibling;
+  if (after === drag.row) after = after.nextElementSibling;
+  const beforeId = after?.dataset.taskId || null;
+  cancelAnimationFrame(drag.frame);
+  drag.placeholder.before(drag.row);
+  drag.placeholder.remove();
+  drag.row.classList.remove('dragging');
+  for (const property of ['position', 'left', 'top', 'width', 'z-index']) drag.row.style.removeProperty(property);
+  drag.row.ignoreClickUntil = performance.now() + 2000;
+  drag.row.suppressClickUntil = performance.now() + 700;
+  dragState = null;
+  if (canPersist) tasks = readSaved();
+  if (!cancelled) { tasks = moveTask(tasks, drag.id, beforeId); persist(); }
+  refresh();
+  announce(cancelled ? 'Move cancelled.' : 'Task moved.');
+}
+
 function attachSwipe(row) {
   let gesture = null;
+  let holdTimer;
+  const cancelHold = () => { clearTimeout(holdTimer); holdTimer = null; };
+  row.addEventListener('contextmenu', event => event.preventDefault());
   row.addEventListener('pointerdown', event => {
-    if (!event.target.closest('.task-swipe-content') || event.target.closest('.task-menu')
-      || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    if (!event.target.closest('.task-toggle') || (event.pointerType === 'mouse' && event.button !== 0) || dragState) return;
+    cancelHold();
     gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, horizontal: false };
+    holdTimer = setTimeout(() => { if (gesture) startDragging(row, gesture); }, 400);
   });
   row.addEventListener('pointermove', event => {
     if (!gesture || event.pointerId !== gesture.id) return;
+    if (dragState?.row === row) { event.preventDefault(); placeDraggedTask(event.clientY); return; }
     const dx = event.clientX - gesture.x;
     const dy = event.clientY - gesture.y;
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) cancelHold();
     if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.3) {
       gesture.horizontal = true;
       if (row.setPointerCapture && !row.hasPointerCapture(event.pointerId)) {
@@ -96,20 +166,31 @@ function attachSwipe(row) {
       event.preventDefault();
     }
   }, { passive: false });
+  // Prevent scrolling only once a stationary hold has become a drag.
+  row.addEventListener('touchmove', event => {
+    if (dragState?.row !== row) return;
+    event.preventDefault();
+    if (event.touches[0]) placeDraggedTask(event.touches[0].clientY);
+  }, { passive: false });
   row.addEventListener('pointerup', event => {
+    cancelHold();
     if (!gesture || event.pointerId !== gesture.id) return;
+    if (dragState?.row === row) { event.preventDefault(); finishDragging(); gesture = null; return; }
     const dx = event.clientX - gesture.x;
     const dy = event.clientY - gesture.y;
     if (gesture.horizontal || (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.3)) {
       row.suppressClickUntil = performance.now() + 500;
+      row.ignoreClickUntil = performance.now() + 2000;
       event.preventDefault();
-      if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.3) {
-        revealActions(row, dx > 0 ? 'delete' : 'edit');
-      }
+      if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.3) revealActions(row, dx > 0 ? 'edit' : 'delete');
     }
     gesture = null;
   });
-  row.addEventListener('pointercancel', () => { gesture = null; });
+  row.addEventListener('pointercancel', () => {
+    cancelHold();
+    if (dragState?.row === row) finishDragging(true);
+    gesture = null;
+  });
 }
 
 function taskRow(task) {
@@ -198,6 +279,10 @@ function activateTaskButton(button, event) {
 let touchTap = null;
 $('task-list').addEventListener('pointerdown', event => {
   const button = event.target.closest('button');
+  if (button) {
+    button.ignoreClickUntil = 0;
+    button.closest('.task-row').ignoreClickUntil = 0;
+  }
   if (event.pointerType === 'touch' && button) touchTap = { button, id: event.pointerId, x: event.clientX, y: event.clientY };
 });
 $('task-list').addEventListener('pointercancel', () => { touchTap = null; });
@@ -206,15 +291,21 @@ $('task-list').addEventListener('pointerup', event => {
   touchTap = null;
   if (!tap || event.pointerId !== tap.id || event.target.closest('button') !== tap.button
     || Math.abs(event.clientX - tap.x) > 12 || Math.abs(event.clientY - tap.y) > 12) return;
-  tap.button.lastTouchActivation = performance.now();
+  tap.button.ignoreClickUntil = performance.now() + 2000;
   event.preventDefault();
   activateTaskButton(tap.button, event);
 });
+$('task-list').addEventListener('keydown', event => {
+  if (event.key === 'Enter' || event.key === ' ') {
+    const button = event.target.closest('button');
+    if (button) { button.ignoreClickUntil = 0; button.closest('.task-row').ignoreClickUntil = 0; }
+  }
+  if (event.key === 'Escape' && dragState) finishDragging(true);
+});
 $('task-list').addEventListener('click', event => {
   const button = event.target.closest('button');
-  const touchClick = event.pointerType === 'touch' || event.sourceCapabilities?.firesTouchEvents
-    || (!('pointerType' in event) && event.detail > 0);
-  if (!button || (touchClick && performance.now() - (button.lastTouchActivation ?? -1000) < 750)) return;
+  const row = button?.closest('.task-row');
+  if (!button || performance.now() < (button.ignoreClickUntil || 0) || performance.now() < (row?.ignoreClickUntil || 0)) return;
   activateTaskButton(button, event);
 });
 
@@ -252,11 +343,12 @@ function renderReport(now) {
 }
 
 function render() {
+  if (dragState) return;
   const focusedTaskId = document.activeElement?.dataset?.taskId;
   const now = Date.now();
   const active = tasks.filter(task => task.deletedAt === null && task.completedAt === null && task.expiredAt === null).sort((a, b) => a.createdAt - b.createdAt);
   const completed = tasks.filter(task => task.deletedAt === null && task.completedAt !== null && now < task.createdAt + DAY_MS).sort((a, b) => b.completedAt - a.completedAt);
-  const visible = [...active, ...completed].sort((a, b) => a.createdAt - b.createdAt);
+  const visible = tasks.filter(task => task.deletedAt === null && task.expiredAt === null && now < task.createdAt + DAY_MS);
   const visibleIds = new Set(visible.map(task => task.id));
   for (const [id, row] of taskRows) {
     if (!visibleIds.has(id)) { row.remove(); taskRows.delete(id); }
@@ -309,7 +401,7 @@ $('task-form').addEventListener('submit', event => {
 });
 
 function reloadIfReady() {
-  if (pendingReload && !$('task-input').value && !$('edit-dialog').open) location.reload();
+  if (pendingReload && !dragState && !$('task-input').value && !$('edit-dialog').open) location.reload();
 }
 
 $('edit-input').addEventListener('input', () => $('edit-input').setCustomValidity(''));
