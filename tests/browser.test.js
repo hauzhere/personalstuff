@@ -99,6 +99,56 @@ async function holdDragTask(page, id, targetId) {
   }
 }
 
+test('a blank next line stays available while typing and accepts successive tasks without Enter', async t => {
+  const { page } = await openApp(t);
+  const current = page.getByRole('textbox', { name: 'New task', exact: true });
+  const next = page.getByRole('textbox', { name: 'Next task', exact: true });
+  await current.fill('   ');
+  assert.equal(await next.isVisible(), false, 'Whitespace does not create an extra empty task line');
+  const expected = [];
+  for (const text of ['Take a little walk', 'Call home', 'Read a few pages']) {
+    await current.fill(text);
+    assert.equal(await current.inputValue(), text, 'The task being typed remains editable');
+    assert.equal(await next.isVisible(), true, 'A separate blank next line is available before pressing Enter');
+    assert.equal(await next.inputValue(), '');
+    await next.evaluate(element => { window.__nextEntryElement = element; });
+    await next.tap();
+    expected.push(text);
+    assert.deepEqual(await page.locator('.task-text').allTextContents(), expected, 'Tapping the next line commits the previous task once and in order');
+    assert.equal(await current.inputValue(), '');
+    assert.equal(await current.evaluate(element => element === document.activeElement && element === window.__nextEntryElement), true, 'The tapped input remains focused as the current line');
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('gone.tasks.v1')).tasks);
+    assert.deepEqual(stored.map(task => task.text), expected, 'Tasks are saved without an Enter key or submit button');
+    assert.equal(new Set(stored.map(task => task.id)).size, expected.length, 'Focus changes never duplicate tasks');
+  }
+  await page.reload();
+  assert.deepEqual(await page.locator('.task-text').allTextContents(), expected, 'All tasks entered through next-line taps survive reopening');
+  assert.equal(await current.isVisible(), true);
+  assert.equal(await current.inputValue(), '');
+});
+
+test('unfinished typing survives reopening and commits once when tapping an existing task', async t => {
+  const { page } = await openApp(t, { seed: [task('already-here', 'Already here', fixedNow - 1000)] });
+  const current = page.getByRole('textbox', { name: 'New task', exact: true });
+  await current.fill('A draft to save later');
+  assert.equal(await page.getByRole('textbox', { name: 'Next task', exact: true }).isVisible(), true);
+  await page.reload();
+  assert.equal(await current.inputValue(), 'A draft to save later', 'The current unfinished line is restored from device storage');
+  assert.equal(await page.locator('.task-row').count(), 1, 'Restoring a draft does not add a duplicate task');
+  await current.focus();
+  await page.getByRole('button', { name: 'Complete task: Already here', exact: true }).tap();
+  assert.equal(await page.locator('.task-row.done').count(), 1, 'The original task still responds to the same tap that leaves the draft line');
+  assert.deepEqual(await page.locator('.task-text').allTextContents(), ['Already here', 'A draft to save later']);
+  assert.equal(await current.inputValue(), '', 'Leaving the line saves the task and clears its draft');
+  await page.getByRole('button', { name: 'Weekly report' }).tap();
+  await page.getByRole('button', { name: 'Today', exact: false }).tap();
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('gone.tasks.v1')).tasks);
+  assert.equal(stored.filter(task => task.text === 'A draft to save later').length, 1, 'Further focus changes cannot submit the draft twice');
+  await page.reload();
+  assert.deepEqual(await page.locator('.task-text').allTextContents(), ['Already here', 'A draft to save later']);
+  assert.equal(await current.inputValue(), '');
+});
+
 test('touching a task crosses it immediately while typing and survives a refresh during touch-down', async t => {
   const { page } = await openApp(t);
   await addTask(page, 'Finish this on my phone');

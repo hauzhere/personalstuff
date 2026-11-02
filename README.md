@@ -1,6 +1,6 @@
 # Gone
 
-A quiet, green task list for your iPhone. Type directly into the unboxed **Add a task…** line and press **Enter**. The input clears and stays ready for the next task. Tap a task’s circle or line to cross it off. Unfinished tasks leave the list after 24 hours. **Weekly report** shows completed tasks versus tasks you let go.
+A quiet, green task list for your iPhone. Type directly into the unboxed **Add a task…** line. An empty line appears underneath while you type; tap it to save the current task and start another without pressing Enter. Enter still saves a task, and unfinished typing is kept locally if you reopen the app. Tap a task’s circle or line to cross it off. Unfinished tasks leave the list after 24 hours. **Weekly report** shows completed tasks versus tasks you let go.
 
 This is an independent web recreation of the described experience. It does not connect to the original Gone website or account, and it is not an App Store binary.
 
