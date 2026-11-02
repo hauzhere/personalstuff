@@ -12,8 +12,8 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="./styles.css">
-  <script type="module" src="./app.js"></script>
+  <link rel="stylesheet" href="./styles.css?v=5">
+  <script type="module" src="./app.js?v=5"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -56,17 +56,26 @@
           <thead><tr><th scope="col">Day</th><th scope="col">Completed</th><th scope="col">Removed</th></tr></thead>
           <tbody id="week-breakdown"></tbody>
         </table>
-        <p class="report-footnote">Unfinished tasks are removed after 24 hours.<br>Weeks start on Monday, in your local time.</p>
+        <p class="report-footnote">Removed totals include deleted and expired tasks.<br>Weeks start on Monday, in your local time.</p>
       </section>
       <p id="storage-warning" class="storage-warning" role="alert" hidden></p>
       <p id="announcement" class="sr-only" role="status" aria-live="polite"></p>
     </main>
   </div>
 
+  <dialog id="edit-dialog" aria-labelledby="edit-title">
+    <form id="edit-form">
+      <h2 id="edit-title">Edit task</h2>
+      <label class="sr-only" for="edit-input">Edit task</label>
+      <input id="edit-input" name="text" maxlength="240" autocomplete="off" enterkeyhint="done" required>
+      <div class="edit-buttons"><button type="button" id="cancel-edit">Cancel</button><button type="submit">Save</button></div>
+    </form>
+  </dialog>
+
   <dialog id="help-dialog" aria-labelledby="help-title">
     <div class="dialog-header"><h2 id="help-title">About Gone</h2><button id="close-help" class="text-button" aria-label="Close about dialog">Close</button></div>
     <label class="sound-setting" for="sound-toggle"><span>Completion sound</span><input id="sound-toggle" type="checkbox" checked></label>
-    <p>Type a task and press Enter. Tap its circle or line to cross it off. Tasks leave the list 24 hours after you add them. The weekly report keeps completed and removed totals.</p>
+    <p>Type a task and press Enter. Tap its circle or line to cross it off. Tasks leave the list 24 hours after you add them. Swipe right for the red delete button, or left for the blue edit button. Tap the revealed button to act. Editing keeps the original deadline. The weekly report keeps completed and removed totals.</p>
     <p>Expiration is checked while the app is open and when you return. iPhone can pause websites in the background.</p>
     <h3>Install on iPhone</h3>
     <ol><li>Open this website in Safari.</li><li>Tap Share, then Add to Home Screen.</li><li>Keep Open as Web App on if shown, and tap Add.</li></ol>

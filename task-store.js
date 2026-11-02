@@ -15,16 +15,21 @@ function localDateKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-export function createTask(text, nowMs = Date.now()) {
-  requireTime(nowMs);
+function taskText(text) {
   if (typeof text !== 'string' || !text.trim()) {
     throw new TypeError('Write a task first.');
   }
   const trimmed = text.trim();
   if (trimmed.length > 240) throw new RangeError('Keep tasks to 240 characters.');
+  return trimmed;
+}
+
+export function createTask(text, nowMs = Date.now()) {
+  requireTime(nowMs);
+  const trimmed = taskText(text);
   const id = globalThis.crypto?.randomUUID?.()
     ?? `${nowMs.toString(36)}-${Math.random().toString(36).slice(2)}`;
-  return { id, text: trimmed, createdAt: nowMs, completedAt: null, expiredAt: null };
+  return { id, text: trimmed, createdAt: nowMs, completedAt: null, expiredAt: null, deletedAt: null };
 }
 
 /** Discard malformed storage entries without trusting extra object properties. */
@@ -41,14 +46,28 @@ export function normalizeTasks(value) {
     const completedAt = timestamp(item.completedAt)
       && item.completedAt >= item.createdAt && item.completedAt < deadline
       ? item.completedAt : null;
-    const expiredAt = completedAt === null && timestamp(item.expiredAt)
+    let expiredAt = completedAt === null && timestamp(item.expiredAt)
       && item.expiredAt >= deadline ? deadline : null;
+    let deletedAt = timestamp(item.deletedAt) && item.deletedAt >= item.createdAt
+      ? item.deletedAt : null;
+    if (completedAt !== null) {
+      // Deleting a completed task does not erase its completion history.
+      if (deletedAt !== null && deletedAt < completedAt) deletedAt = null;
+    } else if (deletedAt !== null) {
+      if (deletedAt < deadline) expiredAt = null;
+      else {
+        // Expiration already removed this task before a late deletion could.
+        expiredAt = deadline;
+        deletedAt = null;
+      }
+    }
     tasks.push({
       id: item.id,
       text: item.text.trim().slice(0, 240),
       createdAt: item.createdAt,
       completedAt,
       expiredAt,
+      deletedAt,
     });
     ids.add(item.id);
   }
@@ -59,24 +78,43 @@ export function normalizeTasks(value) {
 export function reconcileTasks(tasks, nowMs = Date.now()) {
   requireTime(nowMs);
   return tasks.map(task => {
-    if (task.expiredAt === null && task.completedAt === null
+    if (task.deletedAt == null && task.expiredAt === null && task.completedAt === null
       && nowMs >= task.createdAt + DAY_MS) {
-      return { ...task, expiredAt: task.createdAt + DAY_MS };
+      return { ...task, deletedAt: null, expiredAt: task.createdAt + DAY_MS };
     }
-    return { ...task };
+    return { ...task, deletedAt: task.deletedAt ?? null };
   });
 }
 
 /** A completed task can be unchecked; its original 24-hour deadline still applies. */
 export function toggleTask(tasks, id, nowMs = Date.now()) {
   return reconcileTasks(tasks, nowMs).map(task => {
-    if (task.id !== id || task.expiredAt !== null) return task;
+    if (task.id !== id || task.expiredAt !== null || task.deletedAt !== null) return task;
     if (task.completedAt === null) return { ...task, completedAt: nowMs };
     return {
       ...task,
       completedAt: null,
       expiredAt: nowMs >= task.createdAt + DAY_MS ? task.createdAt + DAY_MS : null,
     };
+  });
+}
+
+/** Editing never restarts the original 24-hour deadline. */
+export function editTask(tasks, id, text, nowMs = Date.now()) {
+  const trimmed = taskText(text);
+  return reconcileTasks(tasks, nowMs).map(task => {
+    if (task.id !== id || task.expiredAt !== null || task.deletedAt !== null
+      || nowMs >= task.createdAt + DAY_MS) return task;
+    return { ...task, text: trimmed };
+  });
+}
+
+/** Retain removal history instead of erasing a task's weekly report record. */
+export function deleteTask(tasks, id, nowMs = Date.now()) {
+  return reconcileTasks(tasks, nowMs).map(task => {
+    if (task.id !== id || task.expiredAt !== null || task.deletedAt !== null
+      || nowMs >= task.createdAt + DAY_MS) return task;
+    return { ...task, deletedAt: nowMs };
   });
 }
 
@@ -106,8 +144,11 @@ export function weeklyStats(tasks, nowMs = Date.now()) {
   let completed = 0;
   let removed = 0;
   for (const task of reconcileTasks(tasks, nowMs)) {
-    for (const [field, key] of [['completedAt', 'completed'], ['expiredAt', 'removed']]) {
-      const eventTime = task[field];
+    const events = [
+      [task.completedAt, 'completed'],
+      [task.completedAt === null ? (task.deletedAt ?? task.expiredAt) : null, 'removed'],
+    ];
+    for (const [eventTime, key] of events) {
       if (eventTime === null || eventTime < start || eventTime >= end || eventTime > nowMs) continue;
       const day = days.find(item => item.date === localDateKey(new Date(eventTime)));
       if (!day) continue;

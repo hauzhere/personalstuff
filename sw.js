@@ -1,6 +1,6 @@
 /* Bump the shell version when shipping changes to a precached file. */
 const CACHE_PREFIX = 'gone-shell-';
-const CACHE_NAME = `${CACHE_PREFIX}v4`;
+const CACHE_NAME = `${CACHE_PREFIX}v5`;
 const SHELL_FILES = [
   './',
   './index.html',
@@ -8,6 +8,10 @@ const SHELL_FILES = [
   './app.js',
   './task-store.js',
   './completion-sound.js',
+  './styles.css?v=5',
+  './app.js?v=5',
+  './task-store.js?v=5',
+  './completion-sound.js?v=5',
   './manifest.webmanifest',
   './icons/icon.svg',
   './icons/icon-192.png',
@@ -23,7 +27,7 @@ self.addEventListener('install', (event) => {
     const cache = await caches.open(CACHE_NAME);
     // addAll rejects a partial or unsuccessful download: never activate an
     // incomplete offline shell in place of a working previous installation.
-    await cache.addAll(SHELL_FILES);
+    await cache.addAll(SHELL_FILES.map(path => new Request(path, { cache: 'reload' })));
     await self.skipWaiting();
   })());
 });
@@ -45,15 +49,10 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
-      try {
-        const response = await fetch(request);
-        if (response.ok) return response;
-      } catch {
-        // A previously verified shell works without a network connection.
-      }
+      // A cached document and its imports must always belong to the same release.
       const cache = await caches.open(CACHE_NAME);
       const fallback = await cache.match(new URL('./index.html', self.location.href));
-      return fallback || Response.error();
+      return fallback || fetch(request);
     })());
     return;
   }

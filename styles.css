@@ -29,7 +29,23 @@ main { margin-top: 52px; }
 .task-count { margin-left: 5px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .date-line { font-size: 12px; color: var(--muted); margin: 0 0 23px; }
 .task-list { margin: 0; }
+.task-row { position: relative; overflow: hidden; touch-action: pan-y; }
+.task-swipe-content { position: relative; background: var(--background); transition: transform .16s ease; }
+.task-row[data-action="delete"] .task-swipe-content { transform: translateX(66px); }
+.task-row[data-action="edit"] .task-swipe-content { transform: translateX(-66px); }
+.task-actions { position: absolute; inset: 4px 0; display: flex; justify-content: space-between; align-items: stretch; }
+.task-actions button { width: 58px; min-height: 48px; border: 0; border-radius: 6px; color: white; display: grid; place-items: center; }
+.task-delete { background: #bf443e; margin-right: auto; }
+.task-edit { background: #3a75ad; margin-left: auto; }
+.task-actions svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.task-row[data-action="both"] { display: flex; flex-direction: column; }
+.task-row[data-action="both"] .task-actions { position: static; order: 2; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
+.task-row[data-action="both"] .task-actions button { margin: 0; width: 48px; }
+.task-menu { position: absolute; right: 0; top: 9px; height: 40px; width: 28px; padding: 0; border: 0; background: var(--background); color: var(--muted); font-size: 20px; opacity: 0; pointer-events: none; }
+.task-menu:focus-visible { opacity: 1; pointer-events: auto; }
+@media (hover: hover) { .task-row:hover .task-menu { opacity: 1; pointer-events: auto; } }
 .task-toggle { display: flex; align-items: center; width: 100%; min-height: 58px; padding: 13px 0; gap: 16px; border: 0; background: none; text-align: left; }
+.task-toggle > * { pointer-events: none; }
 .task-check, .input-circle { display: block; width: 18px; height: 18px; flex: 0 0 18px; border: 1px solid #809975; border-radius: 50%; }
 .task-text { flex: 1; min-width: 0; font-size: 18px; line-height: 1.7; overflow-wrap: anywhere; }
 .task-remaining { flex-shrink: 0; margin-left: auto; font-size: 12px; line-height: 1.7; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -74,6 +90,11 @@ dialog li { margin-bottom: 5px; }
 .privacy-note { margin-top: 25px; font-size: 10px; }
 .sound-setting { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; margin-top: 12px; font-size: 12px; color: var(--muted); cursor: pointer; }
 .sound-setting input { width: 16px; height: 16px; accent-color: var(--green); }
+#edit-input { display: block; width: 100%; min-width: 0; margin-top: 24px; padding: 10px 0; border: 0; border-bottom: 1px solid var(--faint); border-radius: 0; background: transparent; outline: none; font-size: 17px; }
+#edit-input:focus { border-color: var(--green); }
+.edit-buttons { display: flex; justify-content: flex-end; gap: 24px; margin-top: 22px; }
+.edit-buttons button { border: 0; background: none; padding: 12px 0; font-size: 13px; }
+#cancel-edit { color: var(--muted); }
 
 @media (max-width: 600px) {
   .app-shell { padding: calc(32px + env(safe-area-inset-top)) 26px calc(40px + env(safe-area-inset-bottom)); }
